@@ -1,0 +1,368 @@
+﻿<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+body {
+  background: #fcfcfa;
+  width: 1200px;
+}
+
+.flex-container {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.flex-container>div {
+  margin: 10px;
+  text-align: center;
+  background: beige;
+}
+
+.corner {
+  stroke: black;
+  stroke-width: .5px;
+  fill: none;
+}
+
+.border {
+  stroke: black;
+  stroke-width: 1px;
+  stroke-dasharray: 8,3;
+  fill: none;
+  stroke-opacity: .5;
+}
+
+.face {
+  stroke: black;
+  stroke-width: 1.5px;
+  fill: none;
+}
+
+.hex {
+  stroke: #FF0000;
+  stroke-width: .2px;
+  fill: none;
+}
+
+.hex2 {
+  stroke: blue;
+  stroke-width: .2px;
+  fill: none;
+}
+
+.arc {
+  fill: none;
+  stroke: red;
+  stroke-width: 3px;
+  stroke-linecap: round;
+}
+
+h1 {
+	color: rgb(51, 102, 0)
+	font-size: 2.5em;
+	margin: 0;
+}
+
+.author a, .meta a {
+  color: #000;
+}
+.author, .meta {
+  color: #666;
+  font-style: italic;
+  font-size: small;
+}
+.sea {
+  stroke: none;
+  fill: #ccf;
+}
+
+.outline {
+  stroke: #000;
+  stroke-width: 1px;
+  fill: none;
+}
+.graticule {
+  stroke: #000;
+  stroke-width: .25px;
+  stroke-opacity: .5;
+  fill: none;
+}
+.land {
+  stroke: #000;
+  stroke-width: .5px;
+  fill: #9f9;
+}
+
+</style>
+
+<body>
+	<h1>Mystara - Gnomonic projection on one face of an icosahedron</h1>
+	<p class="author">created with <a href="https://d3js.org/">D3.js</a></p>
+	<div class="flex-container" id="renderer">
+	</div>
+
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://d3js.org/topojson.v2.min.js"></script>
+<script src="d3-geo-projection.js"></script>
+<script src="d3-geo.js"></script>
+
+<script src="platonic_solids.js"></script>
+<script>
+
+
+////////////// Icosahedron //////////////////////
+var ε = 1e-2,
+    π = Math.PI,
+    radians = π / 180,
+    degrees = 180 / π,
+    width = 1200, height = 800,// sert à définir la taille du foldout complet d'où en découle la taille d'une face
+	margin = 1;
+	
+// Define here how to project the globe on each face of an icosahedron
+// We choose a gnomonic projection centered on the face's centroid
+var faceProjection = function(d) {
+	var c = d3.geoCentroid({type: "MultiPoint", coordinates: d});
+	if (Math.abs(Math.abs(c[1]) - 90) < 1e-6) c[0] = 0;
+	return d3.geoGnomonic().scale(1).translate([0, 0]).rotate([-c[0], -c[1]]);
+};
+
+var projection = d3.icosahedron.projection(faceProjection);
+var path = d3.geoPath().projection(projection);
+
+for (var i = 0; i < d3.icosahedron.faces.length; i++)
+{
+	renderface(i);
+}
+		
+//////////////////////// functions ////////////////////////////////////////////
+function sign(i){
+	return [0,1,2,3,4,6,8,10,12,14].indexOf(i)==-1 ? -1 : 1;
+}
+
+function geoSubdivide(tri, n) {
+	var i01 = d3.geoInterpolate(tri[0], tri[1]),
+		i02 = d3.geoInterpolate(tri[0], tri[2]),
+		triangles = [];
+
+	triangles.push([tri[0], i01(1 / n), i02(1 / n)]);
+	
+    for (var i = 1; i < n; ++i) {
+        var i1 = d3.geoInterpolate(i01(i / n), i02(i / n)),
+            i2 = d3.geoInterpolate(i01((i + 1) / n), i02((i + 1) / n));
+        for (var j = 0; j <= i; ++j) { triangles.push([ i1(j / i), i2(j / (i + 1)), i2((j + 1) / (i + 1)) ]);}
+        for (var j = 0; j < i; ++j) { triangles.push([ i1(j / i), i1((j + 1) / i), i2((j + 1) / (i + 1))]);}
+      }
+	return triangles;
+}
+
+function subdivide(tri, n) {
+	var i01 = interpolate(tri[0], tri[1]),
+		i02 = interpolate(tri[0], tri[2]),
+		triangles = [];
+
+	triangles.push([tri[0], i01(1 / n), i02(1 / n)]);
+	
+    for (var i = 1; i < n; ++i) {
+        var i1 = interpolate(i01(i / n), i02(i / n)),
+            i2 = interpolate(i01((i + 1) / n), i02((i + 1) / n));
+        for (var j = 0; j <= i; ++j) { triangles.push([ i1(j / i), i2(j / (i + 1)), i2((j + 1) / (i + 1)) ]);}
+        for (var j = 0; j < i; ++j) { triangles.push([ i1(j / i), i1((j + 1) / i), i2((j + 1) / (i + 1))]);}
+      }
+	return triangles;
+}
+
+function geoToHex(triangles){
+	return triangles.map(function(tri){
+		var pt0 = d3.geoInterpolate(tri[0],tri[1])(1/3),
+		    pt1 = d3.geoInterpolate(tri[0],tri[1])(2/3),
+		    pt2 = d3.geoInterpolate(tri[1],tri[2])(1/3),
+		    pt3 = d3.geoInterpolate(tri[1],tri[2])(2/3),
+		    pt4 = d3.geoInterpolate(tri[2],tri[0])(1/3),
+		    pt5 = d3.geoInterpolate(tri[2],tri[0])(2/3);
+		return [pt0, pt1, pt2, pt3, pt4, pt5, pt0];
+	});
+}
+
+function toHex(triangles){
+	return triangles.map(function(tri){
+		var pt0 = interpolate(tri[0],tri[1])(1/3),
+		    pt1 = interpolate(tri[0],tri[1])(2/3),
+		    pt2 = interpolate(tri[1],tri[2])(1/3),
+		    pt3 = interpolate(tri[1],tri[2])(2/3),
+		    pt4 = interpolate(tri[2],tri[0])(1/3),
+		    pt5 = interpolate(tri[2],tri[0])(2/3);
+		return [pt0, pt1, pt2, pt3, pt4, pt5, pt0];
+	});
+}
+
+function toRing(triangles){
+	return triangles.map(function(d) { 
+		return [d[0] , d[1], d[2], d[0]]; 
+	});
+}
+
+function interpolate(p0, p1) { return function(t) { return [p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1])]; };}
+
+function renderface(id_face){
+	var geoCentroid = [d3.icosahedron.faces[id_face].centroid].map(d3.geoRotation([23.9, 0]))[0];
+	var geoFace = d3.icosahedron.faces[id_face].map(d3.geoRotation([23.9, 0]));
+	var P0 = d3.geoInterpolate(geoCentroid, geoFace[0])(1-ε);
+	var P1 = d3.geoInterpolate(geoCentroid, geoFace[1])(1-ε);
+	var P2 = d3.geoInterpolate(geoCentroid, geoFace[2])(1-ε);
+
+	
+	var centroid = projection([d3.icosahedron.faces[id_face].centroid].map(d3.geoRotation([23.9, 0]))[0]);
+	var side = (3/Math.sqrt(3))*path.measure({type: "MultiLineString",  coordinates: [ 
+		[
+			[d3.icosahedron.faces[id_face].centroid].map(d3.geoRotation([23.9, 0]))[0], 
+			[d3.icosahedron.faces[id_face][0]].map(d3.geoRotation([23.9, 0]))[0]
+		] 
+	]});
+	
+	var wface = margin + (Math.round(side)+1), hface = margin + (Math.round((Math.sqrt(3)*side/2))+1);
+	var centre = [wface/2 - centroid[0],  hface/2 + sign(id_face)*(Math.sqrt(3)/12)*side  - centroid[1]];
+	
+	var geoTriangles =  geoSubdivide([P0, P1, P2], 3);
+	var geoHexagons =  geoToHex(geoTriangles);
+	var geoTriShapes = toRing(geoTriangles);
+	
+	var localTriangles =  subdivide([projection(P0), projection(P1), projection(P2)], 3);
+	var localHexagons =  toHex(localTriangles);
+	var localTriShapes = toRing(localTriangles);
+
+	var renderer = d3.select("#renderer").append('div')	;
+		
+	var svg = renderer.append('svg');
+	svg
+		.attr("width", wface)
+		.attr("height", hface);
+	
+	var definitions = svg.append("defs");
+
+	definitions.append("path")
+		.datum({type: "Sphere"})
+		.attr("id", "sphere"+id_face)
+		.attr("d", path);
+	
+	definitions.append("path")
+		.datum({ type: "Polygon", coordinates: [[P0, P1, P2, P0]] })
+		.attr("id", "clipface"+id_face)
+		.attr("d", path);
+
+	definitions.append("clipPath")
+		.attr("id", "faceclip"+id_face)
+	  .append("use")
+		.attr("xlink:href", "#clipface"+id_face);
+		
+		
+	var layer = svg.append("g");	
+
+	layer.append("use")
+		.attr("class", "sea")
+		.attr("clip-path", "url(#faceclip"+id_face+")")
+		.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+		.attr("xlink:href", "#sphere"+id_face);
+
+	layer.append("path")
+		.datum(d3.geoGraticule())
+		.attr("class", "graticule")
+		.attr("clip-path", "url(#faceclip"+id_face+")")
+		.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+		.attr("d", path);
+		
+	layer.append("path")
+		.datum({type: "MultiLineString", coordinates: [[P0, P1, P2, P0]]})
+		.attr("class", "face")
+		.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+		.attr("d", path);
+			
+	d3.json("world-110m.json", function(error, world) {  
+		layer.insert("path", ".graticule")
+			.datum(topojson.feature(world, world.objects.land))
+			.attr("class", "land")
+			.attr("clip-path", "url(#faceclip"+id_face+")")
+			.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+			.attr("d", path);
+	 	});
+
+	
+	var layer2 = svg.append("g");
+
+	//for (var i = 0, n = triShapes.length; i < n; ++i) {
+	for (var i = 0, n = 0; i < n; ++i) {
+	
+		layer2.append("path")
+		.datum({type: "MultiLineString", coordinates: [geoTriShapes[i]]})
+		.attr("class", "hex2")
+		.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+		.attr("d", path);
+
+		var p = projection(d3.geoCentroid({type: "MultiLineString", coordinates: [geoTriShapes[i]]}));	
+		// draw a rectangle
+		layer2.append("a")
+			.attr("xlink:href", "face"+i+".html")
+			.append("rect")  
+			.attr("x", p[0] - 10)
+			.attr("y", p[1]  - 5)
+			.attr("height", 10)
+			.attr("width", 20)
+			.style("fill", "darkgreen")
+			.attr("rx", 2)
+			.attr("ry", 2)
+			.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")");
+
+		// draw text on the screen
+		layer2.append("text")
+			.attr("x", p[0])
+			.attr("y", p[1])
+			.style("fill", "white")
+			.style("font-size", "10px")
+			.attr("dy", ".35em")
+			.attr("text-anchor", "middle")
+			.style("pointer-events", "none")
+			.text(i)
+			.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")");
+
+	};
+	//uncomment to display geoHexagons
+	//layer2.append("path")
+	//	.datum({type: "MultiPolygon", coordinates: [geoHexagons]})
+	//	.attr("class", "hex")
+	//	.attr("clip-path", "url(#faceclip"+id_face+")")
+	//	.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")")
+	//	.attr("d", path);
+	
+	var layer3 = svg.append("g");
+
+	//uncomment to display triangle
+	//for (var i = 0, n = localTriShapes.length; i < n; ++i) {
+	//	layer3.append("polyline")
+	//		.attr("class", "hex2")
+	//		.attr("points", localTriShapes[i])	
+	//		.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")");
+	//}
+		
+	for (var i = 0, n = localHexagons.length; i < n; ++i) {	
+		layer3.append("polyline")
+			.attr("class", "hex")
+			.attr("points", localHexagons[i])
+			.attr("transform", "translate(" + centre[0] + "," + centre[1] + ")");
+	}
+		
+	var layer0 = svg.append("g");
+	
+	layer0.append("text")
+			.attr("x", 16)
+			.attr("y", sign(id_face)==-1 ? hface-10 : 10)
+			.style("fill", "black")
+			.style("font-size", "10px")
+			.attr("dy", ".35em")
+			.attr("text-anchor", "middle")
+			.style("pointer-events", "none")
+			.style("text-align", "left")
+			.text('face ' + id_face);
+}
+
+</script>
+</body>
+</html>
